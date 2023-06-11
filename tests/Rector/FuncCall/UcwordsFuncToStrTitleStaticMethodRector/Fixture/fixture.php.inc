@@ -1,12 +1,12 @@
 <?php
 
-namespace RectorLaravel\Tests\Rector\FuncCall\UcwordsFuncToStrTitleStaticMethodRector\Fixture;
+namespace RectorLaravel\Tests\Rector\FuncCall\UcfirstFuncToStrUcfirstStaticMethodRector\Fixture;
 
 class Fixture
 {
     public function store()
     {
-        return ucwords('Hello friend');
+        return ucfirst('hello friend');
     }
 }
 
@@ -14,13 +14,13 @@ class Fixture
 -----
 <?php
 
-namespace RectorLaravel\Tests\Rector\FuncCall\UcwordsFuncToStrTitleStaticMethodRector\Fixture;
+namespace RectorLaravel\Tests\Rector\FuncCall\UcfirstFuncToStrUcfirstStaticMethodRector\Fixture;
 
 class Fixture
 {
     public function store()
     {
-        return \Illuminate\Support\Str::title('Hello friend');
+        return \Illuminate\Support\Str::ucfirst('hello friend');
     }
 }
 
