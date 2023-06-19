@@ -702,6 +702,120 @@ return static function (RectorConfig $rectorConfig): void {
 
 <br>
 
+## StrcontainsFuncToStrContainsStaticMethodRector
+
+Change `str_contains()` function to `Str::contains()` static method
+
+- class: [`RectorLaravel\Rector\FuncCall\StrcontainsFuncToStrContainsStaticMethodRector`](../src/Rector/FuncCall/StrcontainsFuncToStrContainsStaticMethodRector.php)
+
+```diff
+ class MyController
+ {
+     public function store()
+     {
+-        return str_contains('Hello World', 'Hello');
++        return Str::contains('Hello World', 'Hello');
+     }
+ }
+```
+
+<br>
+
+## StrpadFuncToStrPadStaticMethodRector
+
+Change `str_pad()` function to `Str::pad()` static method
+
+- class: [`RectorLaravel\Rector\FuncCall\StrpadFuncToStrPadStaticMethodRector`](../src/Rector/FuncCall/StrpadFuncToStrPadStaticMethodRector.php)
+
+```diff
+ class MyController
+ {
+     public function store()
+     {
+-        return str_pad('Hello World', 20, '-=', STR_PAD_LEFT);
++        return Str::pad('Hello World', 20, '-=', STR_PAD_LEFT);
+     }
+ }
+```
+
+<br>
+
+## StrtolowerFuncToStrLowerStaticMethodRector
+
+Change `strtolower()` function to `Str::lower()` static method
+
+- class: [`RectorLaravel\Rector\FuncCall\StrtolowerFuncToStrLowerStaticMethodRector`](../src/Rector/FuncCall/StrtolowerFuncToStrLowerStaticMethodRector.php)
+
+```diff
+ class MyController
+ {
+     public function store()
+     {
+-        return strtolower('Hello World');
++        return Str::lower('Hello World');
+     }
+ }
+```
+
+<br>
+
+## StrtoupperFuncToStrUpperStaticMethodRector
+
+Change `strtoupper()` function to `Str::upper()` static method
+
+- class: [`RectorLaravel\Rector\FuncCall\StrtoupperFuncToStrUpperStaticMethodRector`](../src/Rector/FuncCall/StrtoupperFuncToStrUpperStaticMethodRector.php)
+
+```diff
+ class MyController
+ {
+     public function store()
+     {
+-        return strtoupper('Hello World');
++        return Str::upper('Hello World');
+     }
+ }
+```
+
+<br>
+
+## UcfirstFuncToStrUcFirstStaticMethodRector
+
+Change `ucfirst()` function to `Str::ucfirst()` static method
+
+- class: [`RectorLaravel\Rector\FuncCall\UcfirstFuncToStrUcFirstStaticMethodRector`](../src/Rector/FuncCall/UcfirstFuncToStrUcFirstStaticMethodRector.php)
+
+```diff
+ class MyController
+ {
+     public function store()
+     {
+-        return ucfirst('hello world');
++        return Str::ucfirst('hello world');
+     }
+ }
+```
+
+<br>
+
+## UcwordsFuncToStrTitleStaticMethodRector
+
+Change `ucwords()` function to `Str::title()` static method
+
+- class: [`RectorLaravel\Rector\FuncCall\UcwordsFuncToStrUcWordsStaticMethodRector`](../src/Rector/FuncCall/UcwordsFuncToStrUcWordsStaticMethodRector.php)
+
+```diff
+ class MyController
+ {
+     public function store()
+     {
+-        return ucwords('hello world');
++        return Str::title('hello world');
+     }
+ }
+```
+
+<br>
+
 ## UnifyModelDatesWithCastsRector
 
 Unify Model `$dates` property with `$casts`
