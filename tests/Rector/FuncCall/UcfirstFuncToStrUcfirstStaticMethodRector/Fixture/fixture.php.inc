@@ -1,6 +1,6 @@
 <?php
 
-namespace RectorLaravel\Tests\Rector\FuncCall\UcwordsFuncToStrTitleStaticMethodRector\Fixture;
+namespace RectorLaravel\Tests\Rector\FuncCall\UcfirstFuncToStrUcfirstStaticMethodRector\Fixture;
 
 class Fixture
 {
@@ -14,7 +14,7 @@ class Fixture
 -----
 <?php
 
-namespace RectorLaravel\Tests\Rector\FuncCall\UcwordsFuncToStrTitleStaticMethodRector\Fixture;
+namespace RectorLaravel\Tests\Rector\FuncCall\UcfirstFuncToStrUcfirstStaticMethodRector\Fixture;
 
 class Fixture
 {

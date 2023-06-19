@@ -5,14 +5,27 @@ namespace RectorLaravel\Rector\FuncCall;
 use PhpParser\Node;
 use PhpParser\Node\Expr\FuncCall;
 use Rector\Core\Rector\AbstractRector;
+use Symplify\RuleDocGenerator\ValueObject\CodeSample\CodeSample;
 use Symplify\RuleDocGenerator\ValueObject\RuleDefinition;
 
+/**
+ * @see \RectorLaravel\Tests\Rector\FuncCall\UcwordsFuncToStrTitleStaticMethodRector\UcwordsFuncToStrTitleStaticMethodRectorTest
+ */
 class UcwordsFuncToStrTitleStaticMethodRector extends AbstractRector
 {
 
     public function getRuleDefinition(): RuleDefinition
     {
-        return new RuleDefinition('Use Str::title() instead of ucwords()', []);
+        return new RuleDefinition('Use Str::title() instead of ucwords()', [
+            new CodeSample(
+                <<<'CODE_SAMPLE'
+ucwords($string);
+CODE_SAMPLE,
+                <<<'CODE_SAMPLE'
+Str::title($string);
+CODE_SAMPLE,
+            ),
+        ]);
     }
 
     public function getNodeTypes(): array
@@ -20,6 +33,9 @@ class UcwordsFuncToStrTitleStaticMethodRector extends AbstractRector
         return [FuncCall::class];
     }
 
+    /**
+     * @param FuncCall $node
+     */
     public function refactor(Node $node): ?Node\Expr\StaticCall
     {
         if (! $this->isName($node, 'ucwords')) {
