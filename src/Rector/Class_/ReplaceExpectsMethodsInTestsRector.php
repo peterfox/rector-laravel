@@ -40,6 +40,7 @@ class SomethingTest extends TestCase
     {
         $this->expectsJobs([\App\Jobs\SomeJob::class, \App\Jobs\SomeOtherJob::class]);
         $this->expectsEvents(\App\Events\SomeEvent::class);
+        $this->doesntExpectEvents(\App\Events\SomeOtherEvent::class);
 
         $this->get('/');
     }
@@ -54,13 +55,14 @@ class SomethingTest extends TestCase
     public function testSomething()
     {
         \Illuminate\Support\Facades\Bus::fake([\App\Jobs\SomeJob::class, \App\Jobs\SomeOtherJob::class]);
-        \Illuminate\Support\Facades\Event::fake([\App\Events\SomeEvent::class]);
+        \Illuminate\Support\Facades\Event::fake([\App\Events\SomeEvent::class, \App\Events\SomeOtherEvent::class]);
 
         $this->get('/');
 
         \Illuminate\Support\Facades\Bus::assertDispatched(\App\Jobs\SomeJob::class);
         \Illuminate\Support\Facades\Bus::assertDispatched(\App\Jobs\SomeOtherJob::class);
         \Illuminate\Support\Facades\Event::assertDispatched(\App\Events\SomeEvent::class);
+        \Illuminate\Support\Facades\Event::assertNotDispatched(\App\Events\SomeOtherEvent::class);
     }
 }
 CODE_SAMPLE
@@ -89,38 +91,35 @@ CODE_SAMPLE
             // loop over all statements in method
 
             $assertions = [];
-            foreach ($classMethod->getStmts() ?? [] as $index => $stmt) {
-                // if statement is not a method call, skip
-                if (! $stmt instanceof Expression) {
-                    continue;
+            $this->traverseNodesWithCallable($classMethod->getStmts() ?? [], function (Node $node) use (&$changes, &$assertions) {
+                if (! $node instanceof Expression) {
+                    return null;
                 }
 
-                if (! $stmt->expr instanceof MethodCall) {
-                    continue;
+                if (! $node->expr instanceof MethodCall) {
+                    return null;
                 }
 
-                $methodCall = $stmt->expr;
+                $methodCall = $node->expr;
 
-                // if method call is not expectsJobs or expectsEvents, skip
                 if (! $this->isNames($methodCall->name, ['expectsJobs', 'expectsEvents'])) {
-                    continue;
+                    return null;
                 }
 
-                // if method call is not in the form $this->expectsJobs(...), skip
                 if (! $methodCall->var instanceof Variable || ! $this->isName($methodCall->var, 'this')) {
-                    continue;
+                    return null;
                 }
 
                 if ($methodCall->args === []) {
-                    continue;
+                    return null;
                 }
 
                 // if the method call has a string constant as the first argument,
                 // convert it to an array
                 if ($methodCall->args[0] instanceof Arg && (
-                    $methodCall->args[0]->value instanceof ClassConstFetch ||
-                    $methodCall->args[0]->value instanceof String_
-                )) {
+                        $methodCall->args[0]->value instanceof ClassConstFetch ||
+                        $methodCall->args[0]->value instanceof String_
+                    )) {
                     $args = new Array_([new ArrayItem($methodCall->args[0]->value)]);
                 } elseif (
                     $methodCall->args[0] instanceof Arg &&
@@ -128,11 +127,11 @@ CODE_SAMPLE
                 ) {
                     $args = $methodCall->args[0]->value;
                 } else {
-                    continue;
+                    return null;
                 }
 
                 if (! $methodCall->name instanceof Identifier) {
-                    continue;
+                    return null;
                 }
 
                 $facade = match ($methodCall->name->name) {
@@ -142,16 +141,14 @@ CODE_SAMPLE
                 };
 
                 if ($facade === null) {
-                    continue;
+                    return null;
                 }
 
-                $replacement = new Expression(new StaticCall(
+                $node->expr = new StaticCall(
                     new FullyQualified('Illuminate\Support\Facades\\' . $facade),
                     'fake',
                     [new Arg($args)]
-                ));
-
-                $classMethod->stmts[$index] = $replacement;
+                );
 
                 // generate assertDispatched calls for each argument
                 foreach ($args->items as $item) {
@@ -167,7 +164,9 @@ CODE_SAMPLE
                 }
 
                 $changes = true;
-            }
+
+                return $node;
+            });
 
             foreach ($assertions as $assertion) {
                 $classMethod->stmts[] = $assertion;
