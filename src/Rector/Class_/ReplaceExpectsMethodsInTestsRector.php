@@ -17,6 +17,7 @@ use PhpParser\Node\Name\FullyQualified;
 use PhpParser\Node\Scalar\String_;
 use PhpParser\Node\Stmt\Class_;
 use PhpParser\Node\Stmt\Expression;
+use PhpParser\NodeTraverser;
 use PHPStan\Type\ObjectType;
 use Rector\Core\Rector\AbstractRector;
 use Symplify\RuleDocGenerator\ValueObject\CodeSample\CodeSample;
@@ -88,10 +89,13 @@ CODE_SAMPLE
 
         // loop over all methods in class
         foreach ($node->getMethods() as $classMethod) {
-            // loop over all statements in method
 
+            /** @var array<string, Expression[]> $expectingNodes */
+            $expectingNodes = [];
+            /** @var Expression[] $assertions */
             $assertions = [];
-            $this->traverseNodesWithCallable($classMethod->getStmts() ?? [], function (Node $node) use (&$changes, &$assertions) {
+
+            $this->traverseNodesWithCallable($classMethod, function (Node $node) use (&$expectingNodes) {
                 if (! $node instanceof Expression) {
                     return null;
                 }
@@ -102,75 +106,127 @@ CODE_SAMPLE
 
                 $methodCall = $node->expr;
 
-                if (! $this->isNames($methodCall->name, ['expectsJobs', 'expectsEvents'])) {
+                if (! $methodCall->var instanceof Variable || ! $this->isName($node->expr->var, 'this')) {
                     return null;
                 }
 
-                if (! $methodCall->var instanceof Variable || ! $this->isName($methodCall->var, 'this')) {
+                if (! $this->isNames($methodCall->name, [
+                    'expectsJobs',
+                    'expectsEvents',
+                    'doesntExpectEvents',
+                    'doesntExpectJobs'
+                ])) {
                     return null;
                 }
 
-                if ($methodCall->args === []) {
-                    return null;
-                }
-
-                // if the method call has a string constant as the first argument,
-                // convert it to an array
-                if ($methodCall->args[0] instanceof Arg && (
-                        $methodCall->args[0]->value instanceof ClassConstFetch ||
-                        $methodCall->args[0]->value instanceof String_
-                    )) {
-                    $args = new Array_([new ArrayItem($methodCall->args[0]->value)]);
-                } elseif (
-                    $methodCall->args[0] instanceof Arg &&
-                    $methodCall->args[0]->value instanceof Array_
-                ) {
-                    $args = $methodCall->args[0]->value;
-                } else {
-                    return null;
-                }
-
-                if (! $methodCall->name instanceof Identifier) {
-                    return null;
-                }
-
-                $facade = match ($methodCall->name->name) {
-                    'expectsJobs' => 'Bus',
-                    'expectsEvents' => 'Event',
-                    default => null,
+                $facade = match($methodCall->name->name) {
+                    'expectsJobs', 'doesntExpectJobs' => 'Bus',
+                    'expectsEvents', 'doesntExpectEvents' => 'Event',
                 };
 
-                if ($facade === null) {
-                    return null;
-                }
+                $expectingNodes[$facade] ??= [];
+                $expectingNodes[$facade][] = $node;
 
-                $node->expr = new StaticCall(
-                    new FullyQualified('Illuminate\Support\Facades\\' . $facade),
-                    'fake',
-                    [new Arg($args)]
-                );
+                return null;
+            });
 
-                // generate assertDispatched calls for each argument
-                foreach ($args->items as $item) {
-                    if ($item === null) {
+            if (empty($expectingNodes)) {
+                continue;
+            }
+
+            $dispatchByType = [];
+
+            foreach ($expectingNodes as $facade => $facadeExpectingNodes) {
+
+                /** @var array<ClassConstFetch|String_> $dispatchables */
+                $dispatchables = [];
+                foreach ($facadeExpectingNodes as $expectingNode) {
+                    if (! $expectingNode->expr instanceof MethodCall) {
                         continue;
                     }
 
-                    $assertions[] = new Expression(new StaticCall(
-                        new FullyQualified('Illuminate\Support\Facades\\' . $facade),
-                        'assertDispatched',
-                        [new Arg($item->value)]
-                    ));
+                    $methodCallDispatchables = [];
+
+                    // get the arguments of the method call which is either
+                    // a String_, ClassConstFetch or Array_
+                    $args = $expectingNode->expr->args;
+
+                    // if it's an Array_ then we need to get the values of the array
+                    // that are either String_ or ClassConstFetch
+                    if ($args[0]->value instanceof Array_) {
+                        $methodCallDispatchables = array_filter(array_map(function (ArrayItem $item) {
+                            if ($item->value instanceof String_) {
+                                return $item->value;
+                            } elseif ($item->value instanceof ClassConstFetch) {
+                                return $item->value;
+                            }
+                            return null;
+                        }, $args[0]->value->items));
+                    } elseif ($args[0]->value instanceof String_ ) {
+                        $methodCallDispatchables[] = $args[0]->value;
+                    } elseif ($args[0]->value instanceof ClassConstFetch) {
+                        $methodCallDispatchables[] = $args[0]->value;
+                    }
+
+                    $assertionMethod = match($expectingNode->expr->name->name) {
+                        'expectsJobs', 'expectsEvents' => 'assertDispatched',
+                        'doesntExpectJobs', 'doesntExpectEvents' => 'assertNotDispatched',
+                    };
+
+                    foreach ($methodCallDispatchables as $dispatchable) {
+                        $assertions[] = new Expression(
+                            new StaticCall(
+                                new FullyQualified('Illuminate\Support\Facades\\' . $facade),
+                                $assertionMethod,
+                                [new Arg($dispatchable)]
+                            ),
+                        );
+                    }
+
+                    $dispatchables = array_merge($dispatchables, $methodCallDispatchables);
+
+                    $changes = true;
                 }
 
-                $changes = true;
-
-                return $node;
-            });
-
-            foreach ($assertions as $assertion) {
-                $classMethod->stmts[] = $assertion;
+                $dispatchByType[$facade] = $dispatchables;
             }
+
+            $fakeMake = [
+                'Bus' => false,
+                'Event' => false,
+            ];;
+
+            foreach ($expectingNodes as $facade => $facadeExpectingNodes) {
+                $dispatchables = $dispatchByType[$facade];
+
+                foreach ($facadeExpectingNodes as $expectingNode) {
+
+                    if ($fakeMake[$facade] === false) {
+
+                        $expectingNode->expr = new StaticCall(
+                            new FullyQualified('Illuminate\Support\Facades\\' . $facade),
+                            'fake',
+                            [new Arg(new Array_(array_map(function (String_|ClassConstFetch $dispatchable) {
+                                return new ArrayItem($dispatchable);
+                            }, $dispatchables)))]
+                        );
+
+                        $fakeMake[$facade] = true;
+                    } else {
+                       $this->traverseNodesWithCallable($classMethod, function (Node $node) use ($expectingNode) {
+                           if ($node === $expectingNode) {
+                               return NodeTraverser::REMOVE_NODE;
+                           }
+
+                           return null;
+                       });
+                    }
+
+
+                }
+            }
+
+            $classMethod->stmts = array_merge($classMethod->stmts ?? [],  $assertions);
         }
 
         return $changes ? $node : null;
