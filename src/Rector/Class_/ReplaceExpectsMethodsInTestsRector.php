@@ -20,6 +20,7 @@ use PhpParser\Node\Stmt\Expression;
 use PhpParser\NodeTraverser;
 use PHPStan\Type\ObjectType;
 use Rector\Core\Rector\AbstractRector;
+use RectorLaravel\ValueObject\FakeableDispatches;
 use Symplify\RuleDocGenerator\ValueObject\CodeSample\CodeSample;
 use Symplify\RuleDocGenerator\ValueObject\RuleDefinition;
 
@@ -90,12 +91,10 @@ CODE_SAMPLE
         // loop over all methods in class
         foreach ($node->getMethods() as $classMethod) {
 
-            /** @var array<string, Expression[]> $expectingNodes */
-            $expectingNodes = [];
-            /** @var Expression[] $assertions */
-            $assertions = [];
+            /** @var array<string, FakeableDispatches> $fakeableDispatches */
+            $fakeableDispatches = [];
 
-            $this->traverseNodesWithCallable($classMethod, function (Node $node) use (&$expectingNodes) {
+            $this->traverseNodesWithCallable($classMethod, function (Node $node) use (&$fakeableDispatches) {
                 if (! $node instanceof Expression) {
                     return null;
                 }
@@ -119,114 +118,61 @@ CODE_SAMPLE
                     return null;
                 }
 
+                if (! $methodCall->name instanceof Identifier) {
+                    return null;
+                }
+
                 $facade = match($methodCall->name->name) {
                     'expectsJobs', 'doesntExpectJobs' => 'Bus',
                     'expectsEvents', 'doesntExpectEvents' => 'Event',
+                    default => null,
                 };
 
-                $expectingNodes[$facade] ??= [];
-                $expectingNodes[$facade][] = $node;
+                if ($facade === null) {
+                    return null;
+                }
+
+                $fakeableDispatches[$facade] ??= new FakeableDispatches(
+                    new FullyQualified('Illuminate\Support\Facades\\' . $facade),
+                );
+                $fakeableDispatches[$facade]->addExpressionNode($node);
 
                 return null;
             });
 
-            if (empty($expectingNodes)) {
+            if ($fakeableDispatches === []) {
                 continue;
             }
 
-            $dispatchByType = [];
-
-            foreach ($expectingNodes as $facade => $facadeExpectingNodes) {
-
-                /** @var array<ClassConstFetch|String_> $dispatchables */
-                $dispatchables = [];
-                foreach ($facadeExpectingNodes as $expectingNode) {
-                    if (! $expectingNode->expr instanceof MethodCall) {
-                        continue;
-                    }
-
-                    $methodCallDispatchables = [];
-
-                    // get the arguments of the method call which is either
-                    // a String_, ClassConstFetch or Array_
-                    $args = $expectingNode->expr->args;
-
-                    // if it's an Array_ then we need to get the values of the array
-                    // that are either String_ or ClassConstFetch
-                    if ($args[0]->value instanceof Array_) {
-                        $methodCallDispatchables = array_filter(array_map(function (ArrayItem $item) {
-                            if ($item->value instanceof String_) {
-                                return $item->value;
-                            } elseif ($item->value instanceof ClassConstFetch) {
-                                return $item->value;
-                            }
-                            return null;
-                        }, $args[0]->value->items));
-                    } elseif ($args[0]->value instanceof String_ ) {
-                        $methodCallDispatchables[] = $args[0]->value;
-                    } elseif ($args[0]->value instanceof ClassConstFetch) {
-                        $methodCallDispatchables[] = $args[0]->value;
-                    }
-
-                    $assertionMethod = match($expectingNode->expr->name->name) {
-                        'expectsJobs', 'expectsEvents' => 'assertDispatched',
-                        'doesntExpectJobs', 'doesntExpectEvents' => 'assertNotDispatched',
-                    };
-
-                    foreach ($methodCallDispatchables as $dispatchable) {
-                        $assertions[] = new Expression(
-                            new StaticCall(
-                                new FullyQualified('Illuminate\Support\Facades\\' . $facade),
-                                $assertionMethod,
-                                [new Arg($dispatchable)]
-                            ),
-                        );
-                    }
-
-                    $dispatchables = array_merge($dispatchables, $methodCallDispatchables);
-
-                    $changes = true;
+            $this->traverseNodesWithCallable($classMethod, function (Node $node) use (&$fakeableDispatches) {
+                if (! $node instanceof Expression) {
+                    return null;
                 }
 
-                $dispatchByType[$facade] = $dispatchables;
-            }
-
-            $fakeMake = [
-                'Bus' => false,
-                'Event' => false,
-            ];;
-
-            foreach ($expectingNodes as $facade => $facadeExpectingNodes) {
-                $dispatchables = $dispatchByType[$facade];
-
-                foreach ($facadeExpectingNodes as $expectingNode) {
-
-                    if ($fakeMake[$facade] === false) {
-
-                        $expectingNode->expr = new StaticCall(
-                            new FullyQualified('Illuminate\Support\Facades\\' . $facade),
-                            'fake',
-                            [new Arg(new Array_(array_map(function (String_|ClassConstFetch $dispatchable) {
-                                return new ArrayItem($dispatchable);
-                            }, $dispatchables)))]
-                        );
-
-                        $fakeMake[$facade] = true;
-                    } else {
-                       $this->traverseNodesWithCallable($classMethod, function (Node $node) use ($expectingNode) {
-                           if ($node === $expectingNode) {
-                               return NodeTraverser::REMOVE_NODE;
-                           }
-
-                           return null;
-                       });
+                foreach ($fakeableDispatches as $fakeableDispatch) {
+                    if ($fakeableDispatch->hasNode($node)) {
+                        if ($fakeableDispatch->replaced) {
+                            return NodeTraverser::REMOVE_NODE;
+                        } else {
+                            $fakeableDispatch->replaced = true;
+                            return $fakeableDispatch->generateFakeMethod();
+                        }
                     }
-
-
                 }
-            }
 
-            $classMethod->stmts = array_merge($classMethod->stmts ?? [],  $assertions);
+                return null;
+            });
+
+            foreach ($fakeableDispatches as $fakeableDispatch) {
+                $classMethod->stmts = array_merge(
+                    $classMethod->stmts ?? [],
+                    array_map(
+                        fn (StaticCall $call) => new Expression($call),
+                        $fakeableDispatch->generateAssertionStatements()
+                    ),
+                );
+                $changes = true;
+            }
         }
 
         return $changes ? $node : null;

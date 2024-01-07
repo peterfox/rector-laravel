@@ -29,7 +29,6 @@ class BaseTest extends TestCase
     {
         \Illuminate\Support\Facades\Bus::fake([\App\Jobs\SomeJob::class, \App\Jobs\SomeOtherJob::class]);
         \Illuminate\Support\Facades\Event::fake([\App\Events\SomeEvent::class, \App\Events\SomeOtherEvent::class]);
-
         $this->get('/');
         \Illuminate\Support\Facades\Bus::assertDispatched(\App\Jobs\SomeJob::class);
         \Illuminate\Support\Facades\Bus::assertDispatched(\App\Jobs\SomeOtherJob::class);
